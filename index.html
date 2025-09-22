@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Jardín Mágico del Corazón</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0c2461 0%, #1e3799 30%, #4a69bd 70%, #6a89cc 100%);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        .container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .canvas-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #bgCanvas {
+            z-index: 1;
+        }
+        #particleCanvas {
+            z-index: 2;
+        }
+        #flowerCanvas {
+            z-index: 3;
+        }
+        .heart-container {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .heart-btn {
+            width: 180px;
+            height: 180px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            filter: drop-shadow(0 10px 20px rgba(231, 76, 60, 0.4));
+            animation: pulse 2s infinite;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            overflow: visible;
+        }
+        .heart-btn:hover {
+            transform: scale(1.15);
+            filter: drop-shadow(0 15px 30px rgba(231, 76, 60, 0.6));
+        }
+        .heart-btn:active { transform: scale(0.95); }
+        @keyframes pulse {
+            0%,100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        /* El canvas del corazón será absoluto dentro del botón para centrarlo */
+        .heart-btn canvas {
+            display: block;
+            pointer-events: none; /* que clics lleguen al botón */
+        }
+        @media (max-width: 768px) {
+            .heart-btn { width: 140px; height: 140px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <canvas id="bgCanvas" class="canvas-layer"></canvas>
+        <canvas id="flowerCanvas" class="canvas-layer"></canvas>
+        <canvas id="particleCanvas" class="canvas-layer"></canvas>
+
+        <div class="heart-container">
+            <button class="heart-btn" id="heartBtn" aria-label="Llenar el corazón con amor">
+                <!-- se insertará un canvas aquí -->
+            </button>
+        </div>
+    </div>
+
+    <script>
+    // --------- Variables globales ----------
+    const bgCanvas = document.getElementById('bgCanvas');
+    const bgCtx = bgCanvas.getContext('2d', { alpha: false });
+    const flowerCanvas = document.getElementById('flowerCanvas');
+    const flowerCtx = flowerCanvas.getContext('2d');
+    const particleCanvas = document.getElementById('particleCanvas');
+    const particleCtx = particleCanvas.getContext('2d');
+    const heartBtn = document.getElementById('heartBtn');
+
+    let heartFill = 0;
+    const maxHeartFill = 15;
+    let flowers = [];
+    let particles = [];
+    let heartExploded = false;
+    let staticGrass = [];
+    let grassHeight = 0;
+    let lastTime = 0;
+    let flowerSprites = [];
+
+    // Canvas interno para el corazón
+    let heartCanvas = document.createElement('canvas');
+    let heartCtx = heartCanvas.getContext('2d');
+
+    // Pixel ratio para pantallas retina
+    const DPR = window.devicePixelRatio || 1;
+
+    // --------- Inicialización ----------
+    function init() {
+        // Añadir canvas de corazón al botón
+        heartBtn.appendChild(heartCanvas);
+        heartCanvas.style.position = 'absolute';
+        heartCanvas.style.left = '0';
+        heartCanvas.style.top = '0';
+        heartCanvas.style.width = '100%';
+        heartCanvas.style.height = '100%';
+        heartCanvas.style.transformOrigin = 'center';
+
+        resizeAll(); // establece tamaños y crea césped
+        drawEmptyHeart(); // dibujo inicial del corazón vacío
+        createFlowerSprites(); // Crear sprites de flores
+
+        // Listeners
+        window.addEventListener('resize', resizeAll);
+        heartBtn.addEventListener('click', handleHeartClick);
+
+        // Iniciar loop
+        lastTime = performance.now();
+        requestAnimationFrame(animate);
+    }
+
+    // --------- Resize y retina handling ----------
+    function resizeAll() {
+        // canvas de fondo
+        bgCanvas.width = Math.floor(window.innerWidth * DPR);
+        bgCanvas.height = Math.floor(window.innerHeight * DPR);
+        bgCanvas.style.width = window.innerWidth + 'px';
+        bgCanvas.style.height = window.innerHeight + 'px';
+        bgCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        // canvas de partículas
+        particleCanvas.width = Math.floor(window.innerWidth * DPR);
+        particleCanvas.height = Math.floor(window.innerHeight * DPR);
+        particleCanvas.style.width = window.innerWidth + 'px';
+        particleCanvas.style.height = window.innerHeight + 'px';
+        particleCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        // canvas de flores
+        flowerCanvas.width = Math.floor(window.innerWidth * DPR);
+        flowerCanvas.height = Math.floor(window.innerHeight * DPR);
+        flowerCanvas.style.width = window.innerWidth + 'px';
+        flowerCanvas.style.height = window.innerHeight + 'px';
+        flowerCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        grassHeight = window.innerHeight * 0.4;
+        createStaticGrass();
+        drawBackground(); // Redibujar fondo estático
+
+        // heartCanvas dimensionado al tamaño del botón
+        const btnRect = heartBtn.getBoundingClientRect();
+        heartCanvas.width = Math.floor(btnRect.width * DPR);
+        heartCanvas.height = Math.floor(btnRect.height * DPR);
+        heartCanvas.style.width = btnRect.width + 'px';
+        heartCanvas.style.height = btnRect.height + 'px';
+        heartCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        drawEmptyHeart();
+    }
+
+    // --------- Césped estático ----------
+    function createStaticGrass() {
+        staticGrass = [];
+        const baseY = window.innerHeight - grassHeight;
+        const count = Math.min(600, Math.floor(window.innerWidth / 4)); // adaptivo
+        for (let i = 0; i < count; i++) {
+            const x = Math.random() * window.innerWidth;
+            const height = 5 + Math.random() * 20;
+            staticGrass.push({ x, height, baseY });
+        }
+    }
+
+    // --------- Dibujo background ----------
+    function drawBackground() {
+        // cielo
+        const h = window.innerHeight, w = window.innerWidth;
+        const skyGradient = bgCtx.createLinearGradient(0, 0, 0, h);
+        if (heartExploded) {
+            skyGradient.addColorStop(0, '#FF6B6B');
+            skyGradient.addColorStop(0.3, '#FFA726');
+            skyGradient.addColorStop(0.6, '#FFEB3B');
+            skyGradient.addColorStop(1, '#FFF9C4');
+        } else {
+            skyGradient.addColorStop(0, '#87CEEB');
+            skyGradient.addColorStop(1, '#B3E5FC');
+        }
+        bgCtx.fillStyle = skyGradient;
+        bgCtx.fillRect(0, 0, w, h);
+
+        // nubes simples
+        bgCtx.fillStyle = 'rgba(255,255,255,0.9)';
+        drawCloud(bgCtx, w * 0.18, h * 0.18, Math.max(60, w * 0.08));
+        drawCloud(bgCtx, w * 0.72, h * 0.14, Math.max(80, w * 0.12));
+
+        // césped base
+        const baseY = h - grassHeight;
+        bgCtx.fillStyle = '#4CAF50';
+        bgCtx.fillRect(0, baseY, w, grassHeight);
+
+        // césped estático
+        bgCtx.fillStyle = '#388E3C';
+        staticGrass.forEach(g => {
+            bgCtx.fillRect(g.x, g.baseY, 2, -g.height);
+        });
+    }
+
+    function drawCloud(ctx, x, y, size) {
+        ctx.beginPath();
+        ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+        ctx.arc(x + size * 0.5, y - size * 0.1, size * 0.4, 0, Math.PI * 2);
+        ctx.arc(x + size, y, size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // --------- Corazón (canvas interno) ----------
+    function drawEmptyHeart() {
+        const w = heartCanvas.width / DPR;
+        const h = heartCanvas.height / DPR;
+        heartCtx.clearRect(0, 0, w, h);
+
+        const centerX = w / 2;
+        const centerY = h / 2;
+        const size = Math.min(w, h) * 0.32;
+
+        heartCtx.lineWidth = 6;
+        heartCtx.strokeStyle = '#ff7675';
+        drawHeartShape(heartCtx, centerX, centerY, size);
+        heartCtx.stroke();
+    }
+
+    function drawFilledHeart(percentage) {
+        const w = heartCanvas.width / DPR;
+        const h = heartCanvas.height / DPR;
+        heartCtx.clearRect(0, 0, w, h);
+
+        const centerX = w / 2;
+        const centerY = h / 2;
+        const size = Math.min(w, h) * 0.32;
+
+        const gradient = heartCtx.createLinearGradient(centerX - size, centerY - size, centerX + size, centerY + size);
+        gradient.addColorStop(0, '#ff6b6b');
+        gradient.addColorStop(1, '#ff5252');
+
+        heartCtx.fillStyle = gradient;
+        drawHeartShape(heartCtx, centerX, centerY, size);
+        heartCtx.fill();
+
+        // contorno
+        heartCtx.strokeStyle = '#c23616';
+        heartCtx.lineWidth = 4;
+        drawHeartShape(heartCtx, centerX, centerY, size);
+        heartCtx.stroke();
+
+        // máscara de llenado (de abajo hacia arriba)
+        heartCtx.save();
+        heartCtx.globalCompositeOperation = 'destination-in';
+        heartCtx.fillStyle = 'black';
+        const maskHeight = h * percentage;
+        heartCtx.fillRect(0, h - maskHeight, w, maskHeight);
+        heartCtx.restore();
+    }
+
+    function drawHeartShape(context, x, y, size) {
+        context.beginPath();
+        context.moveTo(x, y + size * 0.3);
+        context.bezierCurveTo(x - size, y - size * 0.6, x - size * 1.4, y + size * 0.2, x, y + size * 1.2);
+        context.bezierCurveTo(x + size * 1.4, y + size * 0.2, x + size, y - size * 0.6, x, y + size * 0.3);
+        context.closePath();
+    }
+
+    // --------- Partículas ----------
+    function createParticles(x, y, count) {
+        for (let i = 0; i < count; i++) {
+            particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 1.5) * 6,
+                size: 2 + Math.random() * 6,
+                color: heartExploded ? ['#FFEB3B','#FFD700','#FFA726','#FF6B6B'][Math.floor(Math.random()*4)] : ['#ff6b6b','#ee5a24','#ff5252'][Math.floor(Math.random()*3)],
+                life: 1
+            });
+        }
+        
+        // Limitar número máximo de partículas
+        if (particles.length > 500) {
+            particles = particles.slice(particles.length - 500);
+        }
+    }
+
+    function updateParticles() {
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.12; // gravedad
+            p.vx *= 0.998;
+            p.life -= 0.02;
+            p.size *= 0.995;
+            if (p.life <= 0 || p.y > window.innerHeight + 50) particles.splice(i, 1);
+        }
+    }
+
+    function drawParticles() {
+        particleCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        particles.forEach(p => {
+            particleCtx.save();
+            particleCtx.globalAlpha = Math.max(0, p.life);
+            particleCtx.fillStyle = p.color;
+            particleCtx.beginPath();
+            particleCtx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI*2);
+            particleCtx.fill();
+            particleCtx.restore();
+        });
+    }
+
+    // --------- Crear sprites de flores ----------
+    function createFlowerSprites() {
+        const sizes = [15, 20, 25, 30]; // Diferentes tamaños de flores
+        flowerSprites = sizes.map(size => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const canvasSize = size * 3 * 2; // Tamaño suficiente para la flor
+            
+            canvas.width = canvasSize * DPR;
+            canvas.height = canvasSize * DPR;
+            canvas.style.width = canvasSize + 'px';
+            canvas.style.height = canvasSize + 'px';
+            ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+            
+            // Dibujar la flor en el canvas
+            ctx.clearRect(0, 0, canvasSize, canvasSize);
+            
+            // Centro de la flor
+            const centerX = canvasSize / 2;
+            const centerY = canvasSize / 2;
+            
+            // Centro de la flor
+            const centerGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, size * 0.25);
+            centerGradient.addColorStop(0,'#FFD700');
+            centerGradient.addColorStop(1,'#FF8C00');
+            ctx.fillStyle = centerGradient;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, size * 0.25, 0, Math.PI*2);
+            ctx.fill();
+            ctx.strokeStyle = '#DAA520';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Pétalos
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(angle);
+                const petalGradient = ctx.createLinearGradient(-size * 0.4, 0, size * 0.4, 0);
+                petalGradient.addColorStop(0, '#FFF9C4');
+                petalGradient.addColorStop(1, '#FFEB3B');
+                ctx.fillStyle = petalGradient;
+                ctx.beginPath();
+                ctx.ellipse(size * 0.6, 0, size * 0.35, size * 0.22, 0, 0, Math.PI*2);
+                ctx.fill();
+                ctx.strokeStyle = '#FFA500';
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+                ctx.restore();
+            }
+            
+            return {
+                canvas: canvas,
+                size: size,
+                width: canvasSize,
+                height: canvasSize
+            };
+        });
+    }
+
+    // --------- Flores ----------
+    function createFlowers() {
+        flowers = [];
+        const baseY = window.innerHeight - grassHeight;
+        const numFlowers = 30 + Math.floor(Math.random() * 15); // Reducir cantidad de flores
+        for (let i = 0; i < numFlowers; i++) {
+            const spriteIndex = Math.floor(Math.random() * flowerSprites.length);
+            flowers.push({
+                x: 30 + Math.random() * (window.innerWidth - 60),
+                baseY: baseY + Math.random() * (grassHeight * 0.25),
+                size: flowerSprites[spriteIndex].size,
+                sprite: flowerSprites[spriteIndex],
+                growth: 0,
+                sway: Math.random() * Math.PI * 2,
+                swaySpeed: 0.5 + Math.random() * 1.5
+            });
+        }
+    }
+
+    function updateFlowers() {
+        flowers.forEach(f => {
+            if (f.growth < 1) {
+                f.growth += 0.009;
+                if (f.growth > 1) f.growth = 1;
+            }
+            f.sway += f.swaySpeed * 0.01;
+        });
+    }
+
+    function drawFlowers() {
+        flowerCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        
+        // Dibujar tallos primero
+        flowerCtx.strokeStyle = '#2E7D32';
+        flowerCtx.lineWidth = 3;
+        flowers.forEach(f => {
+            if (f.growth <= 0) return;
+            const stemHeight = f.size * 3 * f.growth;
+            const sway = Math.sin(f.sway) * 3 * f.growth;
+            
+            // Tallo
+            flowerCtx.beginPath();
+            flowerCtx.moveTo(f.x, f.baseY);
+            flowerCtx.lineTo(f.x + sway, f.baseY - stemHeight);
+            flowerCtx.stroke();
+        });
+        
+        // Dibujar flores (sprites)
+        flowers.forEach(f => {
+            if (f.growth <= 0.3) return;
+            
+            const stemHeight = f.size * 3 * f.growth;
+            const sway = Math.sin(f.sway) * 3 * f.growth;
+            const flowerY = f.baseY - stemHeight;
+            
+            flowerCtx.save();
+            flowerCtx.translate(f.x + sway, flowerY);
+            
+            // Aplicar crecimiento
+            const scale = f.growth;
+            flowerCtx.scale(scale, scale);
+            
+            // Dibujar sprite
+            flowerCtx.drawImage(
+                f.sprite.canvas, 
+                -f.sprite.width/2, 
+                -f.sprite.height/2,
+                f.sprite.width,
+                f.sprite.height
+            );
+            
+            flowerCtx.restore();
+        });
+    }
+
+    // --------- Interacción del botón ----------
+    function handleHeartClick() {
+        if (heartExploded) {
+            // si ya explotó, cada clic genera pequeñas partículas
+            const rect = heartBtn.getBoundingClientRect();
+            createParticles(rect.left + rect.width/2, rect.top + rect.height/2, 12);
+            return;
+        }
+
+        heartFill++;
+        const percent = Math.min(1, heartFill / maxHeartFill);
+        drawFilledHeart(percent);
+
+        // pequeñas partículas de "amor" cada vez que llenas
+        const rect = heartBtn.getBoundingClientRect();
+        createParticles(rect.left + rect.width/2, rect.top + rect.height/2, 18);
+
+        // cuando llega al máximo, desencadena la explosión y las flores
+        if (heartFill >= maxHeartFill) {
+            heartExploded = true;
+            createParticles(rect.left + rect.width/2, rect.top + rect.height/2, 120);
+            createFlowers();
+            // Redibujar fondo con nuevo color
+            drawBackground();
+        }
+    }
+
+    // --------- Loop de animación ----------
+    function animate(currentTime) {
+        const deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+        
+        // Actualizar solo si ha pasado suficiente tiempo (control de FPS)
+        if (deltaTime > 16) { // ~60fps
+            updateParticles();
+            if (flowers.length > 0) {
+                updateFlowers();
+            }
+            
+            // Dibujar elementos
+            drawParticles();
+            if (flowers.length > 0) {
+                drawFlowers();
+            }
+
+            // Si el corazón está en proceso de llenado, animar su brillo / leve oscilación
+            if (!heartExploded && heartFill > 0) {
+                const percent = Math.min(1, heartFill / maxHeartFill);
+                drawFilledHeart(percent);
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    // --------- Inicio cuando DOM cargue ----------
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+    </script>
+</body>
+</html>
